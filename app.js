@@ -1,3 +1,4 @@
+
 // ===============================================
 // 1. Firebase Configuration & Initialization
 // ===============================================
@@ -17,7 +18,6 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const rtdb = firebase.database(); // For online status and typing indicators
-const storage = firebase.storage(); // For file/media uploads
 
 // Configure Firestore settings (optional, but good practice for newer features)
 db.settings({ timestampsInSnapshots: true });
@@ -27,7 +27,7 @@ db.settings({ timestampsInSnapshots: true });
 // 2. Global State Variables
 // ===============================================
 let currentUser = null; // Firebase Auth user object
-let currentUserData = null; // Firestore user document data (name, email, avatarInitial, status, statusMessage)
+let currentUserData = null; // Firestore user document data (name, email, avatarInitial, status)
 let currentChatId = null; // Currently selected chat ID (only relevant on chat.html)
 let currentChatOtherUser = null; // Data of the other user in the current chat (only relevant on chat.html)
 
@@ -47,27 +47,20 @@ const unreadCounts = {}; // Stores {chatId: count}
 let lastMessageTimestamps = {}; // Stores {chatId: latestMessageTimestamp} for tracking new messages
 let isMobileView = window.innerWidth <= 768; // Flag to check if current view is mobile
 
-let appTheme = localStorage.getItem('appTheme') || 'light-theme'; // Global app theme: 'light-theme' or 'dark-theme'
-
-// Multi-select modes
-let isChatSelectMode = false;
-const selectedChatIds = new Set();
-let isMessageSelectMode = false;
-const selectedMessageIds = new Set();
-
-
 // ===============================================
 // 3. Common DOM Elements (Cached on DOMContentLoaded)
 //    These variables are global so functions can access them.
 //    Their existence is checked via `if (element)` before use.
 // ===============================================
+// Login page elements
+let authScreen, authTitle, authNameInput, nameLabel, authEmailInput, authPasswordInput, authBtn, authSwitchBtn, authMessage, googleSignInBtn;
 // Index page (sidebar) elements
-let sidebarUserInfo, currentUserAvatar, currentUserNameSpan, newChatBtn, chatSearchInput, chatList, sidebar, chatItemTemplate, moreOptionsBtn, moreOptionsMenu, selectChatsBtn, settingsFromIndexBtn, logoutFromIndexBtn, deleteSelectedChatsBtn;
+let sidebarUserInfo, currentUserAvatar, currentUserNameSpan, logoutBtn, newChatBtn, chatSearchInput, chatList, sidebar, chatItemTemplate;
 // Chat page elements
-let welcomeScreen, currentChatDetails, backToSidebarBtn, currentChatAvatar, currentChatHeaderAvatarStatusIndicator, currentChatNameSpan, currentChatHeaderStatusIndicator, currentChatStatusP, chatOptionsBtn, chatOptionsMenu, selectMessagesBtn, clearChatBtn, toggleThemeBtn, shareChatBtn, blockUserBtn, viewSharedMediaBtn, chatMessages, messageInput, sendBtn, typingIndicator, typingText, callBtn, videoCallBtn, attachBtn, emojiBtn, deleteSelectedMessagesBtn;
+let welcomeScreen, currentChatDetails, backToSidebarBtn, currentChatAvatar, currentChatHeaderAvatarStatusIndicator, currentChatNameSpan, currentChatHeaderStatusIndicator, currentChatStatusP, chatOptionsBtn, chatOptionsMenu, clearChatBtn, toggleThemeBtn, blockUserBtn, chatMessages, messageInput, sendBtn, typingIndicator, typingText;
 // Modals and context menus (present on multiple pages)
 let newChatModal, closeNewChatModalBtn, modalSearchUsersInput, modalUserList;
-let profileViewModal, closeProfileViewModalBtn, profileAvatar, profileName, profileEmail, profileStatus, profileStatusMessage, profileJoined, profileActions;
+let profileViewModal, closeProfileViewModalBtn, profileAvatar, profileName, profileEmail, profileStatus, profileJoined, profileActions;
 let contextMenu;
 
 // Function to cache DOM elements based on the current page's HTML structure
@@ -80,11 +73,24 @@ function cacheDOMElements() {
         profileName = document.getElementById('profileName');
         profileEmail = document.getElementById('profileEmail');
         profileStatus = document.getElementById('profileStatus');
-        profileStatusMessage = document.getElementById('profileStatusMessage');
         profileJoined = document.getElementById('profileJoined');
         profileActions = profileViewModal.querySelector('.profile-actions');
     }
     contextMenu = document.getElementById('contextMenu');
+
+    // Login page elements
+    authScreen = document.getElementById('authScreen');
+    if (authScreen) {
+        authTitle = document.getElementById('authTitle');
+        authNameInput = document.getElementById('authName');
+        nameLabel = document.getElementById('nameLabel');
+        authEmailInput = document.getElementById('authEmail');
+        authPasswordInput = document.getElementById('authPassword');
+        authBtn = document.getElementById('authBtn');
+        authSwitchBtn = document.getElementById('authSwitch');
+        authMessage = document.getElementById('authMessage');
+        googleSignInBtn = document.getElementById('googleSignInBtn');
+    }
 
     // Index page (sidebar) elements
     sidebar = document.getElementById('sidebar');
@@ -92,21 +98,12 @@ function cacheDOMElements() {
         sidebarUserInfo = document.getElementById('sidebarUserInfo');
         currentUserAvatar = document.getElementById('currentUserAvatar');
         currentUserNameSpan = document.getElementById('currentUserName');
+        logoutBtn = document.getElementById('logoutBtn');
         newChatBtn = document.getElementById('newChatBtn');
         chatSearchInput = document.getElementById('chatSearchInput');
         chatList = document.getElementById('chatList');
         chatItemTemplate = document.getElementById('chatItemTemplate');
         newChatModal = document.getElementById('newChatModal');
-        moreOptionsBtn = document.getElementById('moreOptionsBtn');
-        moreOptionsMenu = document.getElementById('moreOptionsMenu');
-
-        if (moreOptionsMenu) {
-            selectChatsBtn = document.getElementById('selectChatsBtn');
-            settingsFromIndexBtn = document.getElementById('settingsBtn');
-            logoutFromIndexBtn = document.getElementById('logoutBtn');
-            deleteSelectedChatsBtn = document.getElementById('deleteSelectedChatsBtn');
-        }
-
         if (newChatModal) {
             closeNewChatModalBtn = document.getElementById('closeNewChatModalBtn');
             modalSearchUsersInput = document.getElementById('modalSearchUsers');
@@ -119,26 +116,17 @@ function cacheDOMElements() {
     if (currentChatDetails) {
         welcomeScreen = document.getElementById('welcomeScreen');
         backToSidebarBtn = document.getElementById('backToSidebarBtn');
-        currentChatAvatar = document.getElementById('currentChatHeaderAvatar');
+        currentChatAvatar = currentChatDetails.querySelector('.chat-header-avatar');
         currentChatHeaderAvatarStatusIndicator = document.getElementById('currentChatHeaderAvatarStatusIndicator');
         currentChatNameSpan = document.querySelector('#currentChatName span');
         currentChatHeaderStatusIndicator = document.getElementById('currentChatHeaderStatusIndicator');
         currentChatStatusP = document.getElementById('currentChatStatus');
         chatOptionsBtn = document.getElementById('chatOptionsBtn');
         chatOptionsMenu = document.getElementById('chatOptionsMenu');
-        callBtn = document.getElementById('callBtn');
-        videoCallBtn = document.getElementById('videoCallBtn');
-        attachBtn = document.getElementById('attachBtn');
-        emojiBtn = document.getElementById('emojiBtn');
-
         if (chatOptionsMenu) {
-            selectMessagesBtn = document.getElementById('selectMessagesBtn');
             clearChatBtn = document.getElementById('clearChatBtn');
             toggleThemeBtn = document.getElementById('toggleThemeBtn');
-            shareChatBtn = document.getElementById('shareChatBtn');
             blockUserBtn = document.getElementById('blockUserBtn');
-            viewSharedMediaBtn = document.getElementById('viewSharedMediaBtn');
-            deleteSelectedMessagesBtn = document.getElementById('deleteSelectedMessagesBtn');
         }
         chatMessages = document.getElementById('chatMessages');
         messageInput = document.getElementById('messageInput');
@@ -227,9 +215,6 @@ function showAppMessage(message, isSuccess = false) {
         tempDiv.addEventListener('transitionend', () => tempDiv.remove());
     }, 5000);
 }
-// Expose showAppMessage globally for dots.js to use
-window.showAppMessage = showAppMessage;
-
 
 /**
  * Sets the loading state for a button.
@@ -243,20 +228,10 @@ function setButtonLoading(button, isLoading, originalText) {
             button.textContent = 'Loading...';
             button.disabled = true;
         } else {
-            button.innerHTML = originalText; // Use innerHTML for icons
+            button.textContent = originalText;
             button.disabled = false;
         }
     }
-}
-
-/**
- * Scrolls the chat messages container to the bottom.
- */
-function scrollToBottom() {
-    if (!chatMessages) return;
-    requestAnimationFrame(() => {
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    });
 }
 
 /**
@@ -275,8 +250,6 @@ function clearChatPageUI() {
     if (messageInput) updateMessageInputHeight();
     if (chatOptionsMenu) chatOptionsMenu.classList.add('hidden');
     hideContextMenu();
-    // Reset message selection mode
-    if (isMessageSelectMode) toggleMessageSelectMode();
 }
 
 /**
@@ -296,6 +269,10 @@ function unsubscribeAllListeners() {
     if (unsubscribeFromOtherUserStatus) {
         unsubscribeFromOtherUserStatus();
         unsubscribeFromOtherUserStatus = null;
+    }
+    if (unsubscribeFromChatTyping) {
+        unsubscribeFromChatTyping();
+        unsubscribeFromChatTyping = null;
     }
     if (unsubscribeFromRTDBConnection) {
         unsubscribeFromRTDBConnection();
@@ -382,7 +359,7 @@ function hideContextMenu() {
     }
 }
 
-// Global click listener to hide context menu and other dropdown menus
+// Global click listener to hide context menu and chat options menu
 document.addEventListener('click', (event) => {
     // Hide context menu
     if (contextMenu && contextMenu.classList.contains('show') && !contextMenu.contains(event.target)) {
@@ -392,27 +369,141 @@ document.addEventListener('click', (event) => {
     if (chatOptionsMenu && chatOptionsMenu.classList.contains('show') && !chatOptionsMenu.contains(event.target) && (!chatOptionsBtn || !chatOptionsBtn.contains(event.target))) {
         chatOptionsMenu.classList.remove('show');
     }
-    // Hide more options menu (if on index.html)
-    if (moreOptionsMenu && moreOptionsMenu.classList.contains('show') && !moreOptionsMenu.contains(event.target) && (!moreOptionsBtn || !moreOptionsBtn.contains(event.target))) {
-        moreOptionsMenu.classList.remove('show');
+});
+
+
+// ===============================================
+// 5. Authentication Logic (Unified)
+// ===============================================
+
+let isRegistering = false; // Tracks if the user is in registration mode
+
+/**
+ * Toggles between login and registration forms.
+ */
+function toggleAuthMode() {
+    isRegistering = !isRegistering;
+    if (isRegistering) {
+        if (authTitle) authTitle.textContent = 'Register for Chat Some';
+        if (authBtn) authBtn.textContent = 'Register';
+        if (authSwitchBtn) authSwitchBtn.textContent = 'Already have an account? Login';
+        if (authNameInput) authNameInput.classList.remove('hidden');
+        if (nameLabel) nameLabel.classList.remove('hidden');
+    } else {
+        if (authTitle) authTitle.textContent = 'Login to Chat Some';
+        if (authBtn) authBtn.textContent = 'Login';
+        if (authSwitchBtn) authSwitchBtn.textContent = 'Don\'t have an account? Register';
+        if (authNameInput) authNameInput.classList.add('hidden');
+        if (nameLabel) nameLabel.classList.add('hidden');
+    }
+    // Clear inputs when switching mode
+    if (authEmailInput) authEmailInput.value = '';
+    if (authPasswordInput) authPasswordInput.value = '';
+    if (authNameInput) authNameInput.value = '';
+    if (authMessage) authMessage.textContent = ''; // Clear any previous error messages
+    if (authBtn) authBtn.disabled = false;
+    if (googleSignInBtn) googleSignInBtn.disabled = false;
+}
+
+// Event listener for email/password auth button
+// These event listeners will only be active if the elements exist on the current page (login.html)
+if (authBtn) authBtn.addEventListener('click', async () => {
+    const email = authEmailInput.value.trim();
+    const password = authPasswordInput.value.trim();
+    const name = authNameInput ? authNameInput.value.trim() : '';
+
+    if (!email || !password || (isRegistering && !name)) {
+        if (authMessage) authMessage.textContent = 'Please fill in all required fields.';
+        return;
+    }
+
+    setButtonLoading(authBtn, true, isRegistering ? 'Register' : 'Login');
+    if (authMessage) authMessage.textContent = '';
+
+    try {
+        if (isRegistering) {
+            const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+            await db.collection('users').doc(userCredential.user.uid).set({
+                name: name,
+                email: email,
+                avatarInitial: getAvatarInitial(name),
+                status: 'offline', // Will be set to online by onAuthStateChanged
+                lastActive: firebase.firestore.FieldValue.serverTimestamp(),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('User registered and profile created:', userCredential.user.uid);
+        } else {
+            await auth.signInWithEmailAndPassword(email, password);
+            console.log('User logged in with email/password.');
+        }
+    } catch (error) {
+        let errorMessage = error.message;
+        if (error.code === 'auth/email-already-in-use') {
+            errorMessage = 'Email already in use. Try logging in or use a different email.';
+        } else if (error.code === 'auth/invalid-email') {
+            errorMessage = 'Invalid email address.';
+        } else if (error.code === 'auth/weak-password') {
+            errorMessage = 'Password should be at least 6 characters.';
+        } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+            errorMessage = 'Invalid email or password.';
+        }
+        if (authMessage) authMessage.textContent = errorMessage;
+        console.error('Auth error:', error);
+    } finally {
+        setButtonLoading(authBtn, false, isRegistering ? 'Register' : 'Login');
     }
 });
 
-/**
- * Adjusts the height of the message input textarea to fit its content.
- */
-function updateMessageInputHeight() {
-    if (!messageInput) return;
-    messageInput.style.height = 'auto'; // Reset height
-    messageInput.style.height = messageInput.scrollHeight + 'px'; // Set to scroll height
-}
+// Event listener for auth mode switch
+if (authSwitchBtn) authSwitchBtn.addEventListener('click', toggleAuthMode);
 
-// ===============================================
-// 5. Authentication Logic (Login.html specific code REMOVED)
-// This app.js file now assumes the user is already authenticated or handles redirection
-// if they are not. Login/Registration UI and logic are handled in login.js.
-// ===============================================
+// Google Sign-in Provider
+const googleProvider = new firebase.auth.GoogleAuthProvider();
 
+// Handles Google Sign-in
+if (googleSignInBtn) googleSignInBtn.addEventListener('click', async () => {
+    setButtonLoading(googleSignInBtn, true, 'Sign in with Google');
+    if (authMessage) authMessage.textContent = '';
+
+    try {
+        const result = await auth.signInWithPopup(googleProvider);
+        const user = result.user;
+
+        const userDocRef = db.collection('users').doc(user.uid);
+        const userDoc = await userDocRef.get();
+
+        if (!userDoc.exists) {
+            await userDocRef.set({
+                name: user.displayName || user.email.split('@')[0],
+                email: user.email,
+                avatarInitial: getAvatarInitial(user.displayName || user.email),
+                status: 'offline', // Will be set to online by onAuthStateChanged
+                lastActive: firebase.firestore.FieldValue.serverTimestamp(),
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('New Google user profile created.');
+        } else {
+            await userDocRef.update({
+                status: 'online', // Ensure status is online after successful login
+                lastActive: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            console.log('Existing Google user logged in.');
+        }
+    } catch (error) {
+        let errorMessage = error.message;
+        if (error.code === 'auth/popup-closed-by-user') {
+            errorMessage = 'Google Sign-in cancelled.';
+        } else if (error.code === 'auth/cancelled-popup-request') {
+            errorMessage = 'You have pending Google sign-in request. Please wait.';
+        } else if (error.code === 'auth/account-exists-with-different-credential') {
+            errorMessage = `An account with this email already exists using ${error.credential.providerId}. Please use that sign-in method.`;
+        }
+        if (authMessage) authMessage.textContent = errorMessage;
+        console.error('Google Sign-in error:', error);
+    } finally {
+        setButtonLoading(googleSignInBtn, false, 'Sign in with Google');
+    }
+});
 
 // ===============================================
 // 6. User Status / Presence Logic (Shared)
@@ -422,9 +513,8 @@ function updateMessageInputHeight() {
  * Updates the current user's online/offline status in Firestore and Realtime Database.
  * Also sets up `onDisconnect` for RTDB to handle sudden disconnects.
  * @param {'online' | 'offline' | 'away'} status - The status to set.
- * @param {string} [statusMessage] - Optional status message to update.
  */
-async function updateUserStatus(status, statusMessage = null) {
+async function updateUserStatus(status) {
     if (!currentUser || !currentUser.uid) {
         console.warn('Cannot update user status: currentUser is not set.');
         return;
@@ -435,21 +525,13 @@ async function updateUserStatus(status, statusMessage = null) {
     const lastActiveTimestamp = firebase.firestore.FieldValue.serverTimestamp();
     const rtdbLastChanged = firebase.database.ServerValue.TIMESTAMP;
 
-    const updateData = {
-        status: status,
-        lastActive: lastActiveTimestamp
-    };
-    if (statusMessage !== null) {
-        updateData.statusMessage = statusMessage;
-    }
-
     try {
         // Update Firestore document
-        await userDocRef.update(updateData);
+        await userDocRef.update({
+            status: status,
+            lastActive: lastActiveTimestamp
+        });
         console.log(`User status updated to ${status} in Firestore for ${currentUser.uid}.`);
-        if (statusMessage !== null) {
-             console.log(`User status message updated to "${statusMessage}".`);
-        }
 
         // Update Realtime Database for real-time presence
         if (status === 'online') {
@@ -472,8 +554,7 @@ async function updateUserStatus(status, statusMessage = null) {
             });
             console.log(`RTDB status explicitly set to offline for ${currentUser.uid}.`);
         }
-    }
-    catch (error) {
+    } catch (error) {
         console.error('Error updating user status:', error);
     }
 }
@@ -506,14 +587,14 @@ function updateStatusIndicatorUI(indicatorElement, status) {
  */
 function subscribeToRTDBConnectionStatus() {
     if (unsubscribeFromRTDBConnection) unsubscribeFromRTDBConnection(); // Clean up previous
-
+    
     const connectedRef = rtdb.ref('.info/connected');
     unsubscribeFromRTDBConnection = connectedRef.on('value', (snapshot) => {
         if (snapshot.val() === true) {
             console.log('Realtime Database: Connected.');
             // Update status to online if currently logged in
             if (currentUser && currentUser.uid) {
-                updateUserStatus('online', currentUserData?.statusMessage || 'Hey there! I\'m using Chat Some.'); // Pass current status message
+                updateUserStatus('online');
             }
         } else {
             console.log('Realtime Database: Disconnected.');
@@ -552,7 +633,7 @@ function subscribeToOtherUserStatus(userId, statusIndicatorElement, statusTextEl
             const lastActive = userData.lastActive ? userData.lastActive.toDate() : null;
 
             if (statusIndicatorElement) updateStatusIndicatorUI(statusIndicatorElement, status);
-
+            
             let statusText = status.charAt(0).toUpperCase() + status.slice(1);
             if (status === 'offline' && lastActive) {
                 const now = Date.now();
@@ -577,7 +658,7 @@ function subscribeToOtherUserStatus(userId, statusIndicatorElement, statusTextEl
         }
     }, error => {
         console.error('Error subscribing to other user status:', error);
-        if (statusIndicatorElement) updateStatusIndicatorUI(indicatorElement, 'offline');
+        if (statusIndicatorElement) updateStatusIndicatorUI(statusIndicatorElement, 'offline');
         if (statusTextElement) statusTextElement.textContent = 'Error';
     });
     console.log(`Subscribed to user status for: ${userId}`);
@@ -587,12 +668,12 @@ function subscribeToOtherUserStatus(userId, statusIndicatorElement, statusTextEl
 // 7. Authentication State Change & Routing
 // ===============================================
 
-// This is the main orchestrator for the application's pages (index.html, chat.html).
+// This is the main orchestrator for the entire application.
 // It runs on every page load to determine authentication status and direct traffic.
 auth.onAuthStateChanged(async (user) => {
     // Ensure DOM elements are cached BEFORE trying to use them in this listener
-    cacheDOMElements();
-    applyGlobalTheme(appTheme); // Apply theme as soon as DOM is ready
+    // This listener can fire before DOMContentLoaded if scripts are deferred.
+    cacheDOMElements(); 
 
     if (user) {
         // User is logged in
@@ -610,17 +691,17 @@ auth.onAuthStateChanged(async (user) => {
                 // This scenario means an authenticated user somehow doesn't have a Firestore profile.
                 // It's a critical error for this app. Force logout.
                 console.error("User document not found for:", currentUser.uid, "This is unexpected. Forcing logout.");
-                await auth.signOut(); // This will trigger onAuthStateChanged again
-                return;
+                await auth.signOut();
+                return; // Exit to trigger re-evaluation by onAuthStateChanged
             }
         } catch (error) {
             console.error('Error fetching current user data:', error);
-            await auth.signOut(); // Logout if data fetching fails, triggers onAuthStateChanged again
+            await auth.signOut(); // Logout if data fetching fails
             return;
         }
 
         // Update status to online and set up RTDB connection listener
-        await updateUserStatus('online', currentUserData.statusMessage || 'Hey there! I\'m using Chat Some.');
+        await updateUserStatus('online');
         subscribeToRTDBConnectionStatus();
 
         // Page-specific initialization based on current URL
@@ -630,10 +711,8 @@ auth.onAuthStateChanged(async (user) => {
         } else if (window.location.pathname.includes('index.html')) {
             // Logged in on index page, initialize index page
             console.log('Initializing index page logic...');
-            // Display current user's info in sidebar (clickable to my profile page)
-            if (sidebarUserInfo) sidebarUserInfo.addEventListener('click', () => {
-                window.location.href = 'profile.html'; // Redirect to dedicated profile page
-            });
+            // Display current user's info in sidebar
+            if (sidebarUserInfo) sidebarUserInfo.addEventListener('click', () => openProfileViewModal(currentUser.uid));
             if (currentUserAvatar && currentUserNameSpan) {
                 currentUserAvatar.textContent = currentUserData.avatarInitial;
                 currentUserNameSpan.textContent = currentUserData.name;
@@ -644,6 +723,7 @@ auth.onAuthStateChanged(async (user) => {
             loadUserChats();
 
             // Set up event listeners unique to index.html
+            if (logoutBtn) logoutBtn.addEventListener('click', window.logout);
             if (newChatBtn) newChatBtn.addEventListener('click', () => {
                 if (newChatModal) newChatModal.classList.remove('hidden');
                 if (modalSearchUsersInput) modalSearchUsersInput.value = '';
@@ -652,10 +732,7 @@ auth.onAuthStateChanged(async (user) => {
             if (chatSearchInput) chatSearchInput.addEventListener('input', (e) => {
                 const searchTerm = e.target.value.toLowerCase();
                 Array.from(chatList.children).forEach(chatItem => {
-                    if (chatItem.classList.contains('hidden') || !chatItem.dataset.chatId) return;
-                    // Don't hide items that are selected
-                    if (isChatSelectMode && chatItem.querySelector('.chat-select-checkbox')?.checked) return;
-
+                    if (chatItem.classList.contains('hidden') || !chatItem.dataset.chatId) return; 
                     const chatName = chatItem.querySelector('.chat-name span').textContent.toLowerCase();
                     const chatPreview = chatItem.querySelector('.chat-preview').textContent.toLowerCase();
                     if (chatName.includes(searchTerm) || chatPreview.includes(searchTerm)) {
@@ -672,11 +749,6 @@ auth.onAuthStateChanged(async (user) => {
                 displayAllUsersInModal(e.target.value);
             });
 
-            // "More Options" menu for index.html header - event listeners are set up in dots.js
-            // The functions called by dots.js will be global functions defined in this app.js.
-            // Expose main app functions to global scope for dots.js to access them
-            window.toggleChatSelectMode = toggleChatSelectMode;
-            window.deleteSelectedChats = deleteSelectedChats;
 
         } else if (window.location.pathname.includes('chat.html')) {
             // Logged in on chat page, initialize chat page
@@ -703,11 +775,6 @@ auth.onAuthStateChanged(async (user) => {
                     if (otherUserDoc.exists) {
                         otherUser = { id: otherUserDoc.id, ...otherUserDoc.data() };
                         allUsers.push(otherUser); // Add to cache
-                        // Since we just fetched, this other user might not be part of `allUsers` yet if the chat was just created.
-                        // Add to allUsers if not present
-                        if (!allUsers.some(u => u.id === otherUser.id)) {
-                            allUsers.push(otherUser);
-                        }
                     } else {
                         console.error('Other user data not found for ID:', otherUserIdFromUrl);
                         showAppMessage('Other user not found. Redirecting to chat list.', false);
@@ -729,48 +796,68 @@ auth.onAuthStateChanged(async (user) => {
                 // Navigate back to index.html and clean up chat page state
                 window.location.href = 'index.html';
             });
-            // Chat Options Menu Item Functionalities - event listeners are set up in dots.js
-            // Expose main app functions to global scope for dots.js to access them
-            window.clearChat = clearChat; // Expose clearChat function
-            window.toggleTheme = toggleTheme; // Expose toggleTheme function
-            window.shareCurrentChat = shareCurrentChat;
-            window.blockUser = blockUser;
-            window.viewSharedMedia = viewSharedMedia;
-            window.toggleMessageSelectMode = toggleMessageSelectMode;
-            window.deleteSelectedMessages = deleteSelectedMessages;
-
-
-            // Apply saved chat theme on load (for chat.html)
-            const savedChatTheme = localStorage.getItem('chatTheme');
-            if (savedChatTheme && chatMessages) {
-                chatMessages.classList.add(savedChatTheme);
-                chatMessages.dataset.theme = savedChatTheme;
+            if (chatOptionsBtn) chatOptionsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (chatOptionsMenu) chatOptionsMenu.classList.toggle('show');
+            });
+            if (clearChatBtn) clearChatBtn.addEventListener('click', async () => {
+                if (!currentChatId || !confirm('Are you sure you want to clear all messages in this chat? This cannot be undone.')) {
+                    return;
+                }
+                try {
+                    const messagesRef = db.collection('chats').doc(currentChatId).collection('messages');
+                    const snapshot = await messagesRef.get();
+                    const batch = db.batch();
+                    snapshot.docs.forEach(doc => { batch.delete(doc.ref); });
+                    await batch.commit();
+                    console.log(`All messages in chat ${currentChatId} cleared.`);
+                    showAppMessage('Chat history cleared!', true);
+                    if (chatMessages) chatMessages.innerHTML = '';
+                } catch (error) {
+                    console.error('Error clearing chat history:', error);
+                    showAppMessage('Failed to clear chat history.');
+                } finally {
+                    if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
+                }
+            });
+            if (toggleThemeBtn) toggleThemeBtn.addEventListener('click', () => {
+                if (!chatMessages) return;
+                const currentTheme = chatMessages.dataset.theme || 'default';
+                let nextTheme;
+                switch (currentTheme) {
+                    case 'default':
+                        nextTheme = 'theme-gradient';
+                        break;
+                    case 'theme-gradient':
+                        nextTheme = 'theme-dark';
+                        break;
+                    case 'theme-dark':
+                        nextTheme = 'default';
+                        break;
+                    default:
+                        nextTheme = 'theme-gradient'; // Fallback
+                }
+                chatMessages.classList.remove('theme-gradient', 'theme-dark');
+                if (nextTheme !== 'default') {
+                    chatMessages.classList.add(nextTheme);
+                }
+                chatMessages.dataset.theme = nextTheme;
+                console.log('Chat theme toggled to:', nextTheme);
+                if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
+                localStorage.setItem('chatTheme', nextTheme); // Store theme in localStorage to persist
+            });
+            // Apply saved theme on load (for chat.html)
+            const savedTheme = localStorage.getItem('chatTheme');
+            if (savedTheme && chatMessages) {
+                chatMessages.classList.add(savedTheme);
+                chatMessages.dataset.theme = savedTheme;
             }
-
-            // Call and Attach/Emoji Buttons
-            if (callBtn) callBtn.addEventListener('click', () => showAppMessage('Voice Call feature is a Work In Progress.', false));
-            if (videoCallBtn) videoCallBtn.addEventListener('click', () => showAppMessage('Video Call feature is a Work In Progress.', false));
-            if (emojiBtn) emojiBtn.addEventListener('click', () => {
-                // Simple emoji insertion, a real picker would be more complex
-                showAppMessage('Emoji selection is a Work In Progress. Would open emoji picker, inserting a random one for now.', false);
-                const emojis = ['😊', '😂', '👍', '❤️', '👏', '🥳', '😎'];
-                const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-                messageInput.value += randomEmoji;
-                updateMessageInputHeight();
+            if (blockUserBtn) blockUserBtn.addEventListener('click', () => {
+                if (currentChatOtherUser) {
+                    alert(`Functionality "Block ${currentChatOtherUser.name}" is a Work In Progress.`);
+                }
+                if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
             });
-            if (attachBtn) attachBtn.addEventListener('click', () => {
-                const fileInput = document.createElement('input');
-                fileInput.type = 'file';
-                fileInput.accept = 'image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx'; // Accept various types
-                fileInput.onchange = async (e) => {
-                    const file = e.target.files[0];
-                    if (file) {
-                        await sendFileMessage(file);
-                    }
-                };
-                fileInput.click(); // Programmatically click the hidden input
-            });
-
 
             // Message input and send button listeners for chat.html
             if (messageInput) {
@@ -793,71 +880,69 @@ auth.onAuthStateChanged(async (user) => {
                     return;
                 }
                 try {
-                    await sendMessageToFirestore('text', messageText);
+                    const messagesRef = db.collection('chats').doc(currentChatId).collection('messages');
+                    const chatRef = db.collection('chats').doc(currentChatId);
+                    await messagesRef.add({
+                        senderId: currentUser.uid,
+                        text: messageText,
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    await chatRef.update({
+                        lastMessage: { senderId: currentUser.uid, text: messageText, timestamp: firebase.firestore.FieldValue.serverTimestamp() },
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                    });
                     setTypingStatusRTDB(false); // Clear typing status immediately
                     messageInput.value = '';
                     updateMessageInputHeight();
                     if (sendBtn) sendBtn.disabled = true;
                     clearTimeout(typingTimer); typingTimer = null; // Clear any pending typing timer
+                    showAppMessage('Message sent!', true);
                 } catch (error) {
                     console.error('Error sending message:', error);
                     showAppMessage("Failed to send message. Please check your internet and security rules.");
                 }
             });
         }
+
         // Add a global listener to update user status to offline on browser/tab close
-        window.addEventListener('beforeunload', () => updateUserStatus('offline', currentUserData.statusMessage));
+        window.addEventListener('beforeunload', () => updateUserStatus('offline'));
 
     } else {
         // User is NOT logged in
         console.log('User is not logged in.');
         // Update status to offline (if currentUser was previously set)
         if (currentUser && currentUser.uid) { // Ensure currentUser was valid before trying to update status
-            await updateUserStatus('offline', currentUserData?.statusMessage);
+            await updateUserStatus('offline');
         }
         currentUser = null;
         currentUserData = null;
 
         unsubscribeAllListeners(); // Clean up all listeners
-        clearChatPageUI(); // Clear chat/index specific UI
+        clearChatPageUI(); // Clear chat/index specific UI (they might be present before redirect)
 
-        // If not on login page, redirect to login.html
         if (!window.location.pathname.includes('login.html')) {
+            // If not on login page and not logged in, redirect to login
             console.log('Redirecting to login.html');
             window.location.href = 'login.html';
+        } else {
+            // On login.html and not logged in, ensure auth screen is visible and ready
+            if (authScreen) authScreen.classList.remove('hidden');
+            // Reset auth UI state if coming from a previous session
+            toggleAuthMode(); 
         }
-        // If on login.html and not logged in, login.js will handle its UI, no action needed here.
     }
 });
 
 // Global logout function (accessible via `window.logout()`)
-// This function needs to be global because settings.js or profile.js might call it.
 window.logout = async () => {
     try {
-        // Explicitly set offline status in RTDB immediately on logout
-        if (currentUser && currentUser.uid) {
-            await rtdb.ref(`/status/${currentUser.uid}`).set({
-                status: 'offline',
-                last_changed: firebase.database.ServerValue.TIMESTAMP
-            });
-            // Cancel any onDisconnect hook
-            rtdb.ref(`/status/${currentUser.uid}`).onDisconnect().cancel();
-            // Clear typing status if applicable
-            if (currentChatId) {
-                rtdb.ref(`typing/${currentChatId}/${currentUser.uid}`).remove();
-            }
-            console.log(`RTDB status explicitly set to offline for ${currentUser.uid} before logout.`);
-        }
-
         await auth.signOut();
         console.log('User initiated logout successfully.');
-        window.location.href = 'login.html'; // Redirect to login page after logout
     } catch (error) {
         console.error('Logout error:', error);
         showAppMessage('Failed to logout. Please try again.');
     }
 };
-
 
 // ===============================================
 // 8. Chat List Management (Index Page Specific)
@@ -869,7 +954,7 @@ window.logout = async () => {
 function loadUserChats() {
     if (!currentUser || !currentUser.uid || !chatList || !chatItemTemplate) {
         console.warn('Cannot load user chats: dependencies missing (currentUser, chatList, chatItemTemplate).');
-        if (chatList) chatList.innerHTML = '<p style="text-align: center; color: #64748b; padding: 20px;">No chats. Click the "+" button to start a new conversation!</p>';
+        if (chatList) chatList.innerHTML = '<p style="text-align: center; color: #64748b; padding: 20px;">No chats. Start a new conversation!</p>';
         return;
     }
 
@@ -913,12 +998,12 @@ function loadUserChats() {
                             allUsers.push(otherUserData); // Add to cache for future use
                             console.log(`Fetched and cached user ${otherUserData.name} for chat list.`);
                         } else {
-                            otherUserData = { name: 'Unknown User', avatarInitial: '?', status: 'offline', statusMessage: 'User Not Found' };
+                            otherUserData = { name: 'Unknown User', avatarInitial: '?', status: 'offline' };
                             console.warn(`User data not found for participant ID: ${otherParticipantId}. Using fallback.`);
                         }
                     } catch (fetchError) {
                         console.error(`Error fetching user ${otherParticipantId} for chat list:`, fetchError);
-                        otherUserData = { name: 'Error User', avatarInitial: '!', status: 'offline', statusMessage: 'Error loading user data' };
+                        otherUserData = { name: 'Error User', avatarInitial: '!', status: 'offline' };
                     }
                 }
 
@@ -933,17 +1018,9 @@ function loadUserChats() {
                         chatItem = chatItemTemplate.cloneNode(true);
                         chatItem.id = '';
                         chatItem.classList.remove('hidden');
-                        chatItem.addEventListener('click', (e) => {
-                            if (isChatSelectMode) {
-                                const checkbox = chatItem.querySelector('.chat-select-checkbox');
-                                if (checkbox) {
-                                    checkbox.checked = !checkbox.checked;
-                                    handleChatSelection(chat.id, checkbox.checked);
-                                }
-                            } else {
-                                // Redirect to chat.html with query parameters
-                                window.location.href = `chat.html?chatId=${chat.id}&otherUserId=${otherUserData.id}`;
-                            }
+                        chatItem.addEventListener('click', () => {
+                            // Redirect to chat.html with query parameters
+                            window.location.href = `chat.html?chatId=${chat.id}&otherUserId=${otherUserData.id}`;
                         });
                         chatItem.addEventListener('contextmenu', (e) => {
                             showContextMenu(e, [
@@ -952,6 +1029,7 @@ function loadUserChats() {
                             ]);
                         });
                         chatItem.addEventListener('touchstart', (e) => {
+                            e.preventDefault();
                             const touchTimer = setTimeout(() => {
                                 showContextMenu(e, [
                                     { label: 'Delete Chat', icon: 'trash-alt', action: () => deleteChat(chat.id), isDanger: true },
@@ -962,10 +1040,6 @@ function loadUserChats() {
                             chatItem.addEventListener('touchend', touchEndHandler);
                             chatItem.addEventListener('touchcancel', touchEndHandler);
                         });
-
-                        // Add checkbox for selection mode (already in template)
-                        const checkbox = chatItem.querySelector('.chat-select-checkbox');
-                        checkbox.addEventListener('change', (e) => handleChatSelection(chat.id, e.target.checked));
                     }
 
                     chatItem.dataset.chatId = chat.id;
@@ -987,30 +1061,11 @@ function loadUserChats() {
                         unreadCounts[chat.id] = (unreadCounts[chat.id] || 0) + 1;
                         chatItem.querySelector('.unread-badge').textContent = unreadCounts[chat.id];
                         chatItem.querySelector('.unread-badge').classList.remove('hidden');
-                    } else { // No new unread messages or already read
+                    } else { // No unread messages or already read
                         chatItem.querySelector('.unread-badge').classList.add('hidden');
-                        // Reset unread count if the latest message is from current user or older
-                        if (chat.lastMessage?.senderId === currentUser.uid || latestMsgTimestamp <= (lastMessageTimestamps[chat.id] || 0)) {
-                           unreadCounts[chat.id] = 0;
-                        }
                     }
                     lastMessageTimestamps[chat.id] = latestMsgTimestamp; // Update last seen timestamp for this chat
-
-                    // Update checkbox visibility based on `isChatSelectMode`
-                    const checkboxContainer = chatItem.querySelector('.chat-select-container');
-                    if (checkboxContainer) {
-                        checkboxContainer.style.display = isChatSelectMode ? 'flex' : 'none';
-                        // If exiting select mode, ensure checkboxes are unchecked
-                        if (!isChatSelectMode) {
-                            checkboxContainer.querySelector('.chat-select-checkbox').checked = false;
-                            chatItem.classList.remove('selected'); // Remove selected class
-                        } else if (selectedChatIds.has(chat.id)) {
-                             chatItem.classList.add('selected'); // Add selected class if already selected
-                        } else {
-                             chatItem.classList.remove('selected');
-                        }
-                    }
-
+                    
                     fragment.appendChild(chatItem); // Add to fragment for batch update
                     processedChatIds.add(chat.id); // Mark as processed
 
@@ -1020,8 +1075,6 @@ function loadUserChats() {
                         currentChatItems.delete(chat.id); // Remove from our map
                         delete unreadCounts[chat.id]; // Clean up unread count
                         delete lastMessageTimestamps[chat.id]; // Clean up timestamp
-                        selectedChatIds.delete(chat.id); // Remove from selected set if deleted
-                        updateDeleteSelectedChatsButtonVisibility();
                     }
                 }
             }
@@ -1031,7 +1084,6 @@ function loadUserChats() {
                 if (!processedChatIds.has(id)) {
                     currentChatItems.get(id).remove();
                     currentChatItems.delete(id);
-                    selectedChatIds.delete(id); // Clean up selected set
                 }
             });
 
@@ -1044,7 +1096,7 @@ function loadUserChats() {
                                         const timeB = chatB?.lastUpdated?.toMillis() || 0;
                                         return timeB - timeA; // Descending order (newest first)
                                     });
-
+            
             chatList.innerHTML = ''; // Clear existing list before appending sorted ones
             sortedItems.forEach(item => chatList.appendChild(item));
             console.log('Chat list updated and sorted.');
@@ -1052,7 +1104,6 @@ function loadUserChats() {
             if (chatList.children.length === 0) {
                 chatList.innerHTML = '<p style="text-align: center; color: #64748b; padding: 20px;">No chats yet. Click "+" to start a new conversation!</p>';
             }
-            updateDeleteSelectedChatsButtonVisibility(); // Update button visibility after list update
 
         }, error => {
             console.error("Error loading chats:", error);
@@ -1061,86 +1112,34 @@ function loadUserChats() {
 }
 
 /**
- * Toggles chat selection mode.
- * Shows/hides checkboxes and the delete selected button.
+ * Deletes a chat and its messages.
+ * @param {string} chatId - The ID of the chat to delete.
  */
-function toggleChatSelectMode() {
-    isChatSelectMode = !isChatSelectMode;
-    selectedChatIds.clear(); // Clear any selections when toggling mode
-    const chatItems = chatList.querySelectorAll('.chat-item');
-    chatItems.forEach(item => {
-        const checkboxContainer = item.querySelector('.chat-select-container');
-        if (checkboxContainer) {
-            checkboxContainer.style.display = isChatSelectMode ? 'flex' : 'none';
-            checkboxContainer.querySelector('.chat-select-checkbox').checked = false; // Uncheck all
-            item.classList.remove('selected'); // Remove selected class
-        }
-    });
-    updateDeleteSelectedChatsButtonVisibility();
-    showAppMessage(isChatSelectMode ? 'Chat selection mode ON. Select chats to delete.' : 'Chat selection mode OFF.', true);
-}
-
-/**
- * Handles individual chat selection.
- * @param {string} chatId - The ID of the chat.
- * @param {boolean} isSelected - True if selected, false if unselected.
- */
-function handleChatSelection(chatId, isSelected) {
-    const chatItem = chatList.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
-    if (isSelected) {
-        selectedChatIds.add(chatId);
-        if (chatItem) chatItem.classList.add('selected');
-    } else {
-        selectedChatIds.delete(chatId);
-        if (chatItem) chatItem.classList.remove('selected');
-    }
-    updateDeleteSelectedChatsButtonVisibility();
-}
-
-/**
- * Updates the visibility of the "Delete Selected Chats" button.
- */
-function updateDeleteSelectedChatsButtonVisibility() {
-    if (deleteSelectedChatsBtn) {
-        if (isChatSelectMode && selectedChatIds.size > 0) {
-            deleteSelectedChatsBtn.style.display = 'flex'; // Use flex to center icon/text
-            deleteSelectedChatsBtn.textContent = `Delete Selected (${selectedChatIds.size})`;
-            deleteSelectedChatsBtn.prepend(document.createElement('i')).className = 'fas fa-trash-alt';
-        } else {
-            deleteSelectedChatsBtn.style.display = 'none';
-        }
-    }
-}
-
-/**
- * Deletes selected chats and their messages.
- */
-async function deleteSelectedChats() {
-    if (selectedChatIds.size === 0) {
-        showAppMessage('No chats selected to delete.', false);
+async function deleteChat(chatId) {
+    if (!confirm('Are you sure you want to delete this chat and all its messages? This cannot be undone.')) {
         return;
     }
-
-    if (!confirm(`Are you sure you want to delete ${selectedChatIds.size} selected chats and all their messages? This cannot be undone.`)) {
-        return;
-    }
-
     try {
+        const chatRef = db.collection('chats').doc(chatId);
+        const messagesRef = chatRef.collection('messages');
+
+        // Delete all messages in the subcollection (Firestore doesn't auto-delete subcollections)
+        const snapshot = await messagesRef.get();
         const batch = db.batch();
-        for (const chatId of selectedChatIds) {
-            const chatRef = db.collection('chats').doc(chatId);
-            const messagesSnapshot = await chatRef.collection('messages').get();
-            messagesSnapshot.docs.forEach(msgDoc => {
-                batch.delete(msgDoc.ref);
-            });
-            batch.delete(chatRef);
-        }
+        snapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+        });
         await batch.commit();
-        showAppMessage(`${selectedChatIds.size} chats deleted successfully!`, true);
-        toggleChatSelectMode(); // Exit select mode after deletion
+        console.log(`All messages for chat ${chatId} deleted.`);
+
+        // Then delete the chat document itself
+        await chatRef.delete();
+        console.log(`Chat ${chatId} deleted.`);
+
+        showAppMessage('Chat deleted successfully!', true);
     } catch (error) {
-        console.error('Error deleting selected chats:', error);
-        showAppMessage('Failed to delete selected chats. Please check security rules.', false);
+        console.error('Error deleting chat:', error);
+        showAppMessage('Failed to delete chat. Please check security rules.');
     }
 }
 
@@ -1276,13 +1275,13 @@ async function startNewChat(otherUser) {
                 lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
             });
-            window.location.href = `chat.html?chatId=${newChatRef.id}&otherUserId=${otherUser.id}`; // Corrected otherUserId
+            window.location.href = `chat.html?chatId=${newChatRef.id}&otherUserId=${otherUser.id}`;
         }
 
         if (newChatModal) newChatModal.classList.add('hidden');
     } catch (error) {
         console.error('Error starting new chat:', error);
-        showAppMessage('Failed to start chat. Please try again or check Firebase rules.', false);
+        showAppMessage('Failed to start chat. Please try again or check Firebase rules.');
     }
 }
 
@@ -1290,141 +1289,6 @@ async function startNewChat(otherUser) {
 // ===============================================
 // 10. Chat Page Logic (chat.html specific)
 // ===============================================
-
-/**
- * Sends a message (text or media) to Firestore.
- * @param {'text' | 'image' | 'video' | 'audio' | 'document'} type - The type of message.
- * @param {string} content - The text content for text messages, or mediaUrl for media messages.
- * @param {string} [fileName] - The original file name for media messages.
- */
-async function sendMessageToFirestore(type, content, fileName = null) {
-    if (!currentUser || !currentChatId) {
-        console.warn('Cannot send message: User not logged in or no chat selected.');
-        showAppMessage('Cannot send message. Please log in or select a chat.', false);
-        return;
-    }
-
-    const messagesRef = db.collection('chats').doc(currentChatId).collection('messages');
-    const chatRef = db.collection('chats').doc(currentChatId);
-
-    const messageData = {
-        senderId: currentUser.uid,
-        type: type,
-        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-        readBy: [currentUser.uid], // Sender has read it
-        starred: false
-    };
-
-    if (type === 'text') {
-        messageData.text = content;
-    } else { // Media messages
-        messageData.mediaUrl = content;
-        messageData.fileName = fileName;
-    }
-
-    try {
-        await messagesRef.add(messageData);
-        await chatRef.update({
-            lastMessage: {
-                senderId: currentUser.uid,
-                type: type,
-                text: type === 'text' ? content : `[${type.toUpperCase()}: ${fileName || 'file'}]`,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
-            },
-            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        console.log(`Message (${type}) sent to chat ${currentChatId}.`);
-    } catch (error) {
-        console.error(`Error sending ${type} message:`, error);
-        showAppMessage(`Failed to send ${type} message. Please check your internet and security rules.`, false);
-        throw error; // Re-throw to allow calling function to handle (e.g., file upload failure)
-    }
-}
-
-/**
- * Handles file selection and uploads to Firebase Storage.
- * Then sends a message with the media URL.
- * @param {File} file - The file to upload.
- */
-async function sendFileMessage(file) {
-    if (!currentUser || !currentChatId) {
-        showAppMessage('Cannot send file: User not logged in or no chat selected.', false);
-        return;
-    }
-
-    const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit
-    if (file.size > MAX_FILE_SIZE) {
-        showAppMessage('File size exceeds 50MB limit.', false);
-        return;
-    }
-
-    // Determine file type for message
-    let messageType = 'document';
-    if (file.type.startsWith('image/')) {
-        messageType = 'image';
-    } else if (file.type.startsWith('video/')) {
-        messageType = 'video';
-    } else if (file.type.startsWith('audio/')) {
-        messageType = 'audio';
-    }
-
-    // Add a temporary message to display upload progress
-    const uploadMessageId = 'uploading-' + Date.now(); // Temporary ID for progress message
-    const tempMessageElement = document.createElement('div');
-    tempMessageElement.classList.add('message', 'sent', 'uploading-message');
-    tempMessageElement.dataset.messageId = uploadMessageId;
-    tempMessageElement.innerHTML = `
-        <div class="message-bubble">
-            <span class="upload-text">Uploading ${file.name} (0%)</span>
-            <div class="upload-progress-bar"></div>
-            <div class="message-meta">
-                <div class="message-time">${formatTime(firebase.firestore.Timestamp.now())}</div>
-            </div>
-        </div>
-    `;
-    chatMessages.appendChild(tempMessageElement);
-    scrollToBottom();
-
-
-    const storageRef = storage.ref(`chat_media/${currentUser.uid}/${file.name}_${Date.now()}`);
-    const uploadTask = storageRef.put(file);
-
-    uploadTask.on(firebase.storage.TaskEvent.STATE_CHANGED, // or 'state_changed'
-        (snapshot) => {
-            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-            const progressBar = tempMessageElement.querySelector('.upload-progress-bar');
-            const uploadText = tempMessageElement.querySelector('.upload-text');
-            if (progressBar) progressBar.style.width = progress + '%';
-            if (uploadText) uploadText.textContent = `Uploading ${file.name} (${Math.round(progress)}%)`;
-            console.log('Upload is ' + progress + '% done');
-        },
-        (error) => {
-            console.error('Upload failed:', error);
-            showAppMessage(`Failed to upload ${file.name}: ${error.message}`, false);
-            if (tempMessageElement) tempMessageElement.remove(); // Remove temporary message
-        },
-        () => {
-            // Upload completed successfully, get the download URL
-            uploadTask.snapshot.ref.getDownloadURL().then(async (downloadURL) => {
-                console.log('File available at', downloadURL);
-                if (tempMessageElement) tempMessageElement.remove(); // Remove temporary message
-                try {
-                    await sendMessageToFirestore(messageType, downloadURL, file.name);
-                    // showAppMessage(`${file.name} sent successfully!`, true); // Message will appear in chat naturally
-                } catch (error) {
-                    // Message sending failed after successful upload
-                    console.error('Error sending message after upload:', error);
-                    showAppMessage('File uploaded, but message sending failed.', false);
-                }
-            }).catch(error => {
-                console.error('Error getting download URL:', error);
-                showAppMessage(`Failed to get download URL for ${file.name}.`, false);
-                if (tempMessageElement) tempMessageElement.remove();
-            });
-        }
-    );
-}
-
 
 /**
  * Selects a chat and loads its messages on the chat.html page.
@@ -1444,27 +1308,9 @@ async function selectChat(chatId, otherUserData) {
     if (currentChatDetails) currentChatDetails.classList.remove('hidden');
     if (currentChatAvatar) currentChatAvatar.textContent = otherUserData.avatarInitial;
     if (currentChatNameSpan) currentChatNameSpan.textContent = otherUserData.name;
-
-    // Set up profile view for chat partner's avatar/info click
-    if (currentChatAvatar) {
-        // Remove existing listener first to prevent duplicates
-        const oldAvatar = currentChatAvatar;
-        currentChatAvatar = oldAvatar.cloneNode(true);
-        oldAvatar.parentNode.replaceChild(currentChatAvatar, oldAvatar);
-        currentChatAvatar.addEventListener('click', () => openProfileViewModal(otherUserData.id));
-    }
-    if (currentChatNameSpan && currentChatNameSpan.closest('.chat-header-details')) {
-        const oldHeaderDetails = currentChatNameSpan.closest('.chat-header-details');
-        const newHeaderDetails = oldHeaderDetails.cloneNode(true);
-        oldHeaderDetails.parentNode.replaceChild(newHeaderDetails, oldHeaderDetails);
-        newHeaderDetails.addEventListener('click', () => openProfileViewModal(otherUserData.id));
-        // Re-cache specific elements within the new header details
-        currentChatNameSpan = newHeaderDetails.querySelector('#currentChatName span');
-        currentChatHeaderStatusIndicator = newHeaderDetails.querySelector('#currentChatHeaderStatusIndicator');
-        currentChatStatusP = newHeaderDetails.querySelector('#currentChatStatus');
-        currentChatHeaderAvatarStatusIndicator = currentChatAvatar.querySelector('#currentChatHeaderAvatarStatusIndicator');
-    }
-
+    
+    // Set up profile view for chat partner's avatar click
+    if (currentChatAvatar) currentChatAvatar.onclick = () => openProfileViewModal(otherUserData.id);
 
     // Subscribe to other user's status for header (both avatar and name indicators)
     subscribeToOtherUserStatus(otherUserData.id, currentChatHeaderStatusIndicator, currentChatStatusP);
@@ -1477,9 +1323,6 @@ async function selectChat(chatId, otherUserData) {
     if (unsubscribeFromMessages) unsubscribeFromMessages();
     if (unsubscribeFromChatTyping) unsubscribeFromChatTyping();
     if (chatOptionsMenu) chatOptionsMenu.classList.add('hidden');
-
-    // Reset message selection mode if currently active
-    if (isMessageSelectMode) toggleMessageSelectMode();
 
     // Listen for new messages in the selected chat
     let lastDisplayedDate = null; // To track last date for separators
@@ -1502,50 +1345,13 @@ async function selectChat(chatId, otherUserData) {
                     // Find and update the existing message in DOM
                     const existingMessageElement = document.querySelector(`.message[data-message-id="${messageData.id}"]`);
                     if (existingMessageElement) {
-                        // Update content based on type
-                        let newContentHTML = '';
-                        if (messageData.type === 'text') {
-                            newContentHTML = messageData.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-                        } else if (messageData.type === 'image') {
-                            newContentHTML = `<img src="${messageData.mediaUrl}" alt="${messageData.fileName || 'Image'}" class="message-media-image" loading="lazy">`;
-                        } else if (messageData.type === 'video') {
-                            newContentHTML = `<video controls class="message-media-video"><source src="${messageData.mediaUrl}" type="video/*"></video>`;
-                        } else if (messageData.type === 'audio') {
-                            newContentHTML = `<audio controls class="message-media-audio"><source src="${messageData.mediaUrl}" type="audio/*"></audio>`;
-                        } else if (messageData.type === 'document') {
-                            newContentHTML = `
-                                <div class="message-media-document">
-                                    <i class="fas fa-file-alt"></i>
-                                    <a href="${messageData.mediaUrl}" target="_blank" rel="noopener noreferrer">${messageData.fileName || 'Document'}</a>
-                                </div>
-                            `;
-                        }
-                        if (messageData.editedAt && messageData.type === 'text') { // Only text messages can be edited
-                            newContentHTML += ' <span class="edited-label">(edited)</span>';
-                        }
-                        // Update the message bubble's inner HTML, preserving checkbox if present
-                        const messageBubble = existingMessageElement.querySelector('.message-bubble');
-                        const messageMeta = messageBubble.querySelector('.message-meta'); // Get meta element before clearing
-                        messageBubble.innerHTML = newContentHTML; // Replace content
-                        if (messageMeta) messageBubble.appendChild(messageMeta); // Re-append meta
-
-                        // If message was starred/unstarred, update icon
-                        let starIcon = messageBubble.querySelector('.message-meta .fa-star');
-                        if (messageData.starred && !starIcon) {
-                             const newStarIcon = document.createElement('i');
-                             newStarIcon.className = 'fas fa-star starred';
-                             messageMeta.prepend(newStarIcon); // Add to the left of time
-                        } else if (!messageData.starred && starIcon) {
-                             starIcon.remove();
-                        }
+                        existingMessageElement.querySelector('.message-bubble').firstChild.textContent = messageData.text;
                     }
                 } else if (change.type === 'removed') {
                     const existingMessageElement = document.querySelector(`.message[data-message-id="${messageData.id}"]`);
                     if (existingMessageElement) {
                         existingMessageElement.remove();
                     }
-                    selectedMessageIds.delete(messageData.id); // Clean up selected set
-                    updateDeleteSelectedMessagesButtonVisibility();
                 }
             });
             scrollToBottom();
@@ -1558,12 +1364,11 @@ async function selectChat(chatId, otherUserData) {
     const typingRef = rtdb.ref(`typing/${chatId}`);
     unsubscribeFromChatTyping = typingRef.on('value', (snapshot) => {
         const typingStatus = snapshot.val() || {};
-        // Filter out current user's typing status
-        const otherTypingUsers = Object.keys(typingStatus).filter(uid => uid !== currentUser.uid && typingStatus[uid]);
+        const isOtherUserTyping = typingStatus[currentChatOtherUser.id];
 
-        if (otherTypingUsers.length > 0) {
+        if (isOtherUserTyping) {
             if (typingIndicator) typingIndicator.classList.remove('hidden');
-            if (typingText) typingText.textContent = `${currentChatOtherUser.name} is typing...`; // Simplified to show only the other user
+            if (typingText) typingText.textContent = `${currentChatOtherUser.name} is typing...`;
             scrollToBottom(); // Scroll to show typing indicator if it appears
         } else {
             if (typingIndicator) typingIndicator.classList.add('hidden');
@@ -1584,227 +1389,6 @@ async function selectChat(chatId, otherUserData) {
 }
 
 /**
- * Toggles message selection mode.
- * Shows/hides checkboxes and the delete selected button.
- */
-function toggleMessageSelectMode() {
-    isMessageSelectMode = !isMessageSelectMode;
-    selectedMessageIds.clear(); // Clear any selections when toggling mode
-    const messages = chatMessages.querySelectorAll('.message');
-    messages.forEach(item => {
-        const checkboxContainer = item.querySelector('.message-select-container');
-        if (checkboxContainer) {
-            checkboxContainer.style.display = isMessageSelectMode ? 'flex' : 'none';
-            checkboxContainer.querySelector('.message-select-checkbox').checked = false; // Uncheck all
-            item.classList.remove('selected'); // Remove selected class
-        }
-    });
-    updateDeleteSelectedMessagesButtonVisibility();
-    showAppMessage(isMessageSelectMode ? 'Message selection mode ON. Select messages to delete.' : 'Message selection mode OFF.', true);
-}
-
-/**
- * Handles individual message selection.
- * @param {string} messageId - The ID of the message.
- * @param {boolean} isSelected - True if selected, false if unselected.
- */
-function handleMessageSelection(messageId, isSelected) {
-    const messageElement = chatMessages.querySelector(`.message[data-message-id="${messageId}"]`);
-    if (isSelected) {
-        selectedMessageIds.add(messageId);
-        if (messageElement) messageElement.classList.add('selected');
-    } else {
-        selectedMessageIds.delete(messageId);
-        if (messageElement) messageElement.classList.remove('selected');
-    }
-    updateDeleteSelectedMessagesButtonVisibility();
-}
-
-/**
- * Updates the visibility of the "Delete Selected Messages" button.
- */
-function updateDeleteSelectedMessagesButtonVisibility() {
-    if (deleteSelectedMessagesBtn) {
-        if (isMessageSelectMode && selectedMessageIds.size > 0) {
-            deleteSelectedMessagesBtn.style.display = 'flex'; // Use flex for centering
-            deleteSelectedMessagesBtn.textContent = `Delete Selected (${selectedMessageIds.size})`;
-            deleteSelectedMessagesBtn.prepend(document.createElement('i')).className = 'fas fa-trash-alt';
-        } else {
-            deleteSelectedMessagesBtn.style.display = 'none';
-        }
-    }
-}
-
-/**
- * Deletes selected messages from Firestore (if sender) or locally (if receiver).
- */
-async function deleteSelectedMessages() {
-    if (selectedMessageIds.size === 0) {
-        showAppMessage('No messages selected to delete.', false);
-        return;
-    }
-
-    if (!confirm(`Are you sure you want to delete ${selectedMessageIds.size} selected messages?`)) {
-        return;
-    }
-
-    const messagesToDeleteFromFirestore = [];
-    const messagesToDeleteLocally = [];
-
-    // Categorize messages based on sender
-    selectedMessageIds.forEach(messageId => {
-        const messageElement = chatMessages.querySelector(`.message[data-message-id="${messageId}"]`);
-        if (messageElement) {
-            // Check if it was a sent message (assuming 'sent' class correctly identifies sender)
-            if (messageElement.classList.contains('sent')) {
-                messagesToDeleteFromFirestore.push(messageId);
-            } else {
-                // If it's a received message, delete only locally
-                messagesToDeleteLocally.push(messageId);
-            }
-        }
-    });
-
-    try {
-        // Delete from Firestore (only messages sent by current user)
-        if (messagesToDeleteFromFirestore.length > 0) {
-            const batch = db.batch();
-            messagesToDeleteFromFirestore.forEach(messageId => {
-                batch.delete(db.collection('chats').doc(currentChatId).collection('messages').doc(messageId));
-            });
-            await batch.commit();
-            console.log(`Deleted ${messagesToDeleteFromFirestore.length} sent messages from Firestore.`);
-        }
-
-        // Delete locally (messages received from others)
-        messagesToDeleteLocally.forEach(messageId => {
-            const messageElement = chatMessages.querySelector(`.message[data-message-id="${messageId}"]`);
-            if (messageElement) messageElement.remove();
-        });
-        if (messagesToDeleteLocally.length > 0) {
-            console.log(`Removed ${messagesToDeleteLocally.length} received messages locally.`);
-        }
-
-        showAppMessage(`Deleted ${selectedMessageIds.size} messages successfully!`, true);
-        toggleMessageSelectMode(); // Exit select mode after deletion
-    } catch (error) {
-        console.error('Error deleting selected messages:', error);
-        showAppMessage('Failed to delete selected messages. Please check security rules.', false);
-    }
-}
-
-
-/**
- * Shares the current chat. Uses Web Share API if available, falls back to clipboard.
- */
-async function shareCurrentChat() {
-    if (!currentChatOtherUser) {
-        showAppMessage('No chat selected to share.', false);
-        return;
-    }
-
-    const shareData = {
-        title: `Chat with ${currentChatOtherUser.name} on Chat Some`,
-        text: `Hey, check out my chat with ${currentChatOtherUser.name} on Chat Some!`,
-        url: window.location.href // Share the current chat URL
-    };
-
-    try {
-        if (navigator.share) {
-            await navigator.share(shareData);
-            console.log('Chat shared successfully via Web Share API.');
-            showAppMessage('Chat shared!', true);
-        } else {
-            // Fallback for browsers that don't support Web Share API
-            await navigator.clipboard.writeText(`${shareData.title}\n${shareData.text}\n${shareData.url}`);
-            console.log('Chat link copied to clipboard.');
-            showAppMessage('Chat link copied to clipboard!', true);
-        }
-    } catch (error) {
-        console.error('Error sharing chat:', error);
-        showAppMessage('Failed to share chat.', false);
-    } finally {
-        if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
-    }
-}
-
-
-/**
- * Clears all messages in the current chat.
- */
-async function clearChat() {
-    if (!currentChatId || !confirm('Are you sure you want to clear all messages in this chat? This cannot be undone.')) {
-        return;
-    }
-    try {
-        const messagesRef = db.collection('chats').doc(currentChatId).collection('messages');
-        const snapshot = await messagesRef.get();
-        const batch = db.batch();
-        snapshot.docs.forEach(doc => { batch.delete(doc.ref); });
-        await batch.commit();
-        console.log(`All messages in chat ${currentChatId} cleared.`);
-        showAppMessage('Chat history cleared!', true);
-        if (chatMessages) chatMessages.innerHTML = '';
-    } catch (error) {
-        console.error('Error clearing chat history:', error);
-        showAppMessage('Failed to clear chat history.');
-    } finally {
-        if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
-    }
-}
-
-/**
- * Toggles the theme of the current chat background.
- */
-function toggleTheme() {
-    if (!chatMessages) return;
-    const currentChatTheme = chatMessages.dataset.theme || 'default';
-    let nextTheme;
-    switch (currentChatTheme) {
-        case 'default':
-            nextTheme = 'theme-gradient';
-            break;
-        case 'theme-gradient':
-            nextTheme = 'theme-dark';
-            break;
-        case 'theme-dark':
-            nextTheme = 'default';
-            break;
-        default:
-            nextTheme = 'theme-gradient'; // Fallback
-    }
-    chatMessages.classList.remove('theme-gradient', 'theme-dark');
-    if (nextTheme !== 'default') {
-        chatMessages.classList.add(nextTheme);
-    }
-    chatMessages.dataset.theme = nextTheme;
-    console.log('Chat theme toggled to:', nextTheme);
-    if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
-    localStorage.setItem('chatTheme', nextTheme); // Store theme in localStorage to persist
-}
-
-
-/**
- * Placeholder for blocking a user.
- */
-function blockUser() {
-    if (currentChatOtherUser) {
-        showAppMessage(`Block ${currentChatOtherUser.name} is a Work In Progress.`, false);
-    }
-    if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
-}
-
-/**
- * Placeholder for viewing shared media.
- * This function is now mostly illustrative as media is directly embedded.
- */
-function viewSharedMedia() {
-    showAppMessage('Viewing shared media is a Work In Progress. Currently, media is embedded directly in chat.', false);
-    if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
-}
-
-
-/**
  * Displays a single message in the chat messages area.
  * @param {Object} message - The message object from Firestore (must contain 'id').
  */
@@ -1820,118 +1404,50 @@ function displayMessage(message) {
     messageElement.classList.add('message');
     messageElement.dataset.messageId = message.id; // Store message ID for context menu ops
 
-    let messageContentHtml = '';
-    let messageBubbleContent = '';
-
-    if (message.type === 'text') {
-        // Make links clickable
-        const textWithLinks = message.text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-        messageBubbleContent = textWithLinks;
-    } else if (message.type === 'image') {
-        messageBubbleContent = `<img src="${message.mediaUrl}" alt="${message.fileName || 'Image'}" class="message-media-image" loading="lazy">`;
-    } else if (message.type === 'video') {
-        messageBubbleContent = `<video controls class="message-media-video"><source src="${message.mediaUrl}" type="video/*"></video>`;
-    } else if (message.type === 'audio') {
-        messageBubbleContent = `<audio controls class="message-media-audio"><source src="${message.mediaUrl}" type="audio/*"></audio>`;
-    } else if (message.type === 'document') {
-        messageBubbleContent = `
-            <div class="message-media-document">
-                <i class="fas fa-file-alt"></i>
-                <a href="${message.mediaUrl}" target="_blank" rel="noopener noreferrer">${message.fileName || 'Document'}</a>
-            </div>
-        `;
-    }
-
-    if (message.editedAt && message.type === 'text') { // Only text messages can be edited
-        messageBubbleContent += ' <span class="edited-label">(edited)</span>';
-    }
-
-
     if (message.senderId === currentUser.uid) {
         messageElement.classList.add('sent');
-        messageContentHtml = `
-            <div class="message-bubble">
-                ${messageBubbleContent}
-                <div class="message-meta">
-                    ${message.starred ? '<i class="fas fa-star starred"></i>' : ''}
-                    <div class="message-time">${formatTime(message.timestamp)}</div>
-                </div>
-            </div>
-        `;
     } else {
         messageElement.classList.add('received');
-        messageContentHtml = `
-            <div class="message-bubble">
-                ${messageBubbleContent}
-                <div class="message-meta">
-                    ${message.starred ? '<i class="fas fa-star starred"></i>' : ''}
-                    <div class="message-time">${formatTime(message.timestamp)}</div>
-                </div>
-            </div>
-        `;
-    }
-    messageElement.innerHTML = messageContentHtml;
-
-    // Add checkbox for selection mode
-    const checkboxContainer = document.createElement('div');
-    checkboxContainer.classList.add('message-select-container');
-    checkboxContainer.innerHTML = `<input type="checkbox" class="message-select-checkbox">`;
-    const checkbox = checkboxContainer.querySelector('.message-select-checkbox');
-    checkbox.addEventListener('change', (e) => handleMessageSelection(message.id, e.target.checked));
-    messageElement.prepend(checkboxContainer); // Add checkbox to the beginning of the message
-
-    // Update checkbox visibility based on `isMessageSelectMode`
-    if (checkboxContainer) {
-        checkboxContainer.style.display = isMessageSelectMode ? 'flex' : 'none';
-        // If exiting select mode, ensure checkboxes are unchecked
-        if (!isMessageSelectMode) {
-            checkboxContainer.querySelector('.message-select-checkbox').checked = false;
-            messageElement.classList.remove('selected'); // Remove selected class
-        } else if (selectedMessageIds.has(message.id)) {
-            messageElement.classList.add('selected'); // Add selected class if already selected
-        } else {
-            messageElement.classList.remove('selected');
-        }
     }
 
+    messageElement.innerHTML = `
+        <div class="message-bubble">
+            ${message.text}
+            <div class="message-time">${formatTime(message.timestamp)}</div>
+        </div>
+    `;
 
     // Add context menu listener for messages (right-click / long-press)
     messageElement.addEventListener('contextmenu', (e) => {
         const options = [];
-        options.push(
-            { label: message.starred ? 'Unstar Message' : 'Star Message', icon: 'star', action: (data) => starMessage(data.messageId, !data.starred), isDanger: false },
-            { label: 'Reply', icon: 'reply', action: (data) => replyToMessage(data.messageText), isDanger: false },
-            { label: 'Forward', icon: 'share', action: (data) => forwardMessage(data.messageId), isDanger: false },
-            { label: 'Message Info', icon: 'info-circle', action: (data) => showMessageInfo(data.messageId), isDanger: false }
-        );
         if (message.senderId === currentUser.uid) {
-            if (message.type === 'text') { // Only text messages can be edited
-                options.push({ label: 'Edit Message', icon: 'edit', action: (data) => editMessage(data.messageId, data.messageText), isDanger: false });
-            }
-            options.push({ label: 'Delete Message', icon: 'trash-alt', action: (data) => deleteMessage(data.messageId), isDanger: true });
+            options.push(
+                { label: 'Edit Message', icon: 'edit', action: (data) => editMessage(data.messageId, data.currentText) },
+                { label: 'Delete Message', icon: 'trash-alt', action: (data) => deleteMessage(data.messageId), isDanger: true }
+            );
         } else {
-            options.push({ label: 'Delete For Me', icon: 'trash-alt', action: (data) => deleteMessageLocally(data.messageId), isDanger: true });
+            options.push(
+                { label: 'Reply', icon: 'reply', action: (data) => console.log('Reply to:', data.messageId, data.currentText) },
+                { label: 'Delete For Me', icon: 'trash-alt', action: (data) => deleteMessageLocally(data.messageId), isDanger: true }
+            );
         }
-        showContextMenu(e, options, { messageId: message.id, messageText: message.text, starred: message.starred, type: message.type });
+        showContextMenu(e, options, { messageId: message.id, currentText: message.text });
     });
     messageElement.addEventListener('touchstart', (e) => {
         const touchTimer = setTimeout(() => {
             const options = [];
-            options.push(
-                { label: message.starred ? 'Unstar Message' : 'Star Message', icon: 'star', action: (data) => starMessage(data.messageId, !data.starred), isDanger: false },
-                { label: 'Reply', icon: 'reply', action: (data) => replyToMessage(data.messageText), isDanger: false },
-                { label: 'Forward', icon: 'share', action: (data) => forwardMessage(data.messageId), isDanger: false },
-                { label: 'Message Info', icon: 'info-circle', action: (data) => showMessageInfo(data.messageId), isDanger: false }
-            );
             if (message.senderId === currentUser.uid) {
-                if (message.type === 'text') {
-                    options.push({ label: 'Edit Message', icon: 'edit', action: (data) => editMessage(data.messageId, data.messageText), isDanger: false });
-                }
-                options.push({ label: 'Delete Message', icon: 'trash-alt', action: (data) => deleteMessage(data.messageId), isDanger: true });
+                options.push(
+                    { label: 'Edit Message', icon: 'edit', action: (data) => editMessage(data.messageId, data.currentText) },
+                    { label: 'Delete Message', icon: 'trash-alt', action: (data) => deleteMessage(data.messageId), isDanger: true }
+                );
             } else {
-                options.push({ label: 'Delete For Me', icon: 'trash-alt', action: (data) => deleteMessageLocally(data.messageId), isDanger: true });
+                options.push(
+                    { label: 'Reply', icon: 'reply', action: (data) => console.log('Reply to:', data.messageId, data.currentText) },
+                    { label: 'Delete For Me', icon: 'trash-alt', action: (data) => deleteMessageLocally(data.messageId), isDanger: true }
+                );
             }
-            showContextMenu(e, options, { messageId: message.id, messageText: message.text, starred: message.starred, type: message.type });
+            showContextMenu(e, options, { messageId: message.id, currentText: message.text });
         }, 500);
         const touchEndHandler = () => { clearTimeout(touchTimer); messageElement.removeEventListener('touchend', touchEndHandler); messageElement.removeEventListener('touchcancel', touchEndHandler); };
         messageElement.addEventListener('touchend', touchEndHandler);
@@ -1940,7 +1456,6 @@ function displayMessage(message) {
 
     chatMessages.appendChild(messageElement);
 }
-
 
 /**
  * Displays a date separator in the chat messages area.
@@ -1973,7 +1488,7 @@ async function editMessage(messageId, currentText) {
             showAppMessage('Message edited successfully!', true);
         } catch (error) {
             console.error('Error editing message:', error);
-            showAppMessage('Failed to edit message. Check security rules.', false);
+            showAppMessage('Failed to edit message. Check security rules.');
         }
     }
 }
@@ -1995,7 +1510,7 @@ async function deleteMessage(messageId) {
         showAppMessage('Message deleted successfully!', true);
     } catch (error) {
         console.error('Error deleting message:', error);
-        showAppMessage('Failed to delete message. Check security rules.', false);
+        showAppMessage('Failed to delete message. Check security rules.');
     }
 }
 
@@ -2011,54 +1526,6 @@ function deleteMessageLocally(messageId) {
         console.log(`Message ${messageId} removed from UI (local delete).`);
         showAppMessage('Message removed from your view.', true);
     }
-}
-
-/**
- * Toggles the starred status of a message.
- * @param {string} messageId - The ID of the message to star/unstar.
- * @param {boolean} starStatus - True to star, false to unstar.
- */
-async function starMessage(messageId, starStatus) {
-    if (!currentChatId) return;
-    try {
-        await db.collection('chats').doc(currentChatId).collection('messages').doc(messageId).update({
-            starred: starStatus
-        });
-        console.log(`Message ${messageId} starred status toggled to ${starStatus}.`);
-        showAppMessage(`Message ${starStatus ? 'starred' : 'unstarred'}!`, true);
-    } catch (error) {
-        console.error('Error starring message:', error);
-        showAppMessage('Failed to star/unstar message. Check security rules.', false);
-    }
-}
-
-/**
- * Placeholder for replying to a message.
- * @param {string} messageText - The text of the message being replied to.
- */
-function replyToMessage(messageText) {
-    showAppMessage(`Functionality for 'Reply' is a Work In Progress. Would pre-fill input with quote/context for: "${messageText}".`, false);
-    if (messageInput) {
-        // Example: messageInput.value = `"${messageText}"\n`;
-        // messageInput.focus();
-        // updateMessageInputHeight();
-    }
-}
-
-/**
- * Placeholder for forwarding a message.
- * @param {string} messageId - The ID of the message to forward.
- */
-function forwardMessage(messageId) {
-    showAppMessage(`Functionality for 'Forward' is a Work In Progress. Would open chat selection to forward message ID: ${messageId}.`, false);
-}
-
-/**
- * Placeholder for showing message info.
- * @param {string} messageId - The ID of the message to show info for.
- */
-function showMessageInfo(messageId) {
-    showAppMessage(`Functionality for 'Message Info' is a Work In Progress. Would show details like delivery/read receipts for message ID: ${messageId}.`, false);
 }
 
 
@@ -2095,55 +1562,29 @@ function setTypingStatusRTDB(isTyping) {
 }
 
 // ===============================================
-// 12. Global Settings & Theme Logic (Shared)
-//     This section is now minimal, mostly just applying theme.
-//     Settings management moved to settings.js
+// 12. Chat Options Menu (Chat Page Specific)
 // ===============================================
-
-/**
- * Applies the global theme to the body element.
- * @param {string} themeName - 'light-theme' or 'dark-theme'.
- */
-function applyGlobalTheme(themeName) {
-    document.body.classList.remove('light-theme', 'dark-theme');
-    document.body.classList.add(themeName);
-    appTheme = themeName;
-    localStorage.setItem('appTheme', themeName); // Persist
-
-    // Note: Theme buttons for global settings are now handled by settings.js
-    console.log('Global theme set to:', themeName);
-}
+// Event listeners for chat options menu are set in `selectChat` for chat.html
+// and `initIndexPage` for index.html if these elements exist.
+// This is done to ensure they are attached only once to elements that are present.
 
 
 // ===============================================
 // 13. Profile View Modal (Shared Across Pages)
-//     This modal is now primarily for viewing *other* users' profiles.
-//     For current user's profile, it redirects to profile.html.
 // ===============================================
 
 // Close profile view modal
-if (closeProfileViewModalBtn) {
-    closeProfileViewModalBtn.addEventListener('click', () => {
-        console.log("Close profile modal button clicked!");
-        if (profileViewModal) {
-            profileViewModal.classList.add('hidden');
-        }
-    });
-}
+if (closeProfileViewModalBtn) closeProfileViewModalBtn.addEventListener('click', () => {
+    if (profileViewModal) profileViewModal.classList.add('hidden');
+});
 
 /**
  * Opens the full-screen profile view modal for a given user.
  * @param {string} userId - The ID of the user whose profile to display.
  */
 async function openProfileViewModal(userId) {
-    if (!profileViewModal || !profileName || !profileEmail || !profileAvatar || !profileStatus || !profileStatusMessage || !profileJoined || !profileActions) {
+    if (!profileViewModal || !profileName || !profileEmail || !profileAvatar || !profileStatus || !profileJoined || !profileActions) {
         console.error("Profile modal DOM elements not found. Cannot open profile.");
-        return;
-    }
-
-    // If it's the current user's profile, redirect to the dedicated page
-    if (userId === currentUser.uid) {
-        window.location.href = 'profile.html';
         return;
     }
 
@@ -2152,7 +1593,6 @@ async function openProfileViewModal(userId) {
     profileEmail.textContent = '';
     profileAvatar.textContent = '';
     profileStatus.textContent = '';
-    profileStatusMessage.textContent = '';
     profileJoined.textContent = '';
     profileActions.innerHTML = ''; // Clear previous actions
 
@@ -2164,7 +1604,6 @@ async function openProfileViewModal(userId) {
             profileName.textContent = userData.name;
             profileEmail.textContent = userData.email;
             profileStatus.textContent = userData.status || 'Offline';
-            profileStatusMessage.textContent = userData.statusMessage || 'No status message'; // Display status message
             profileJoined.textContent = userData.createdAt ? userData.createdAt.toDate().toLocaleDateString() : 'N/A';
 
             let statusIndicatorInProfileAvatar = profileAvatar.querySelector('.status-indicator');
@@ -2175,44 +1614,54 @@ async function openProfileViewModal(userId) {
             }
             updateStatusIndicatorUI(statusIndicatorInProfileAvatar, userData.status);
 
-            // Actions for OTHER users
-            const startChatAction = document.createElement('button');
-            startChatAction.classList.add('primary');
-            startChatAction.textContent = 'Message';
-            startChatAction.addEventListener('click', async () => {
-                if (profileViewModal) profileViewModal.classList.add('hidden');
-                // This logic redirects to chat.html with context
-                const existingChat = (await db.collection('chats')
-                                            .where('participants', 'array-contains', currentUser.uid)
-                                            .get())
-                                            .docs.find(doc => doc.data().participants.includes(userId));
-                if (existingChat) {
-                    window.location.href = `chat.html?chatId=${existingChat.id}&otherUserId=${userId}`;
-                } else {
-                    const newChatRef = await db.collection('chats').add({
-                        participants: [currentUser.uid, userId],
-                        lastMessage: null,
-                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    window.location.href = `chat.html?chatId=${newChatRef.id}&otherUserId=${userId}`; // Corrected otherUserId
-                }
-            });
-            profileActions.appendChild(startChatAction);
+            // Add dynamic actions based on whose profile it is
+            if (userId === currentUser.uid) {
+                const logoutAction = document.createElement('button');
+                logoutAction.classList.add('danger');
+                logoutAction.textContent = 'Logout';
+                logoutAction.addEventListener('click', async () => {
+                    if (profileViewModal) profileViewModal.classList.add('hidden');
+                    window.logout(); // Use global logout
+                });
+                profileActions.appendChild(logoutAction);
 
-            const viewSharedMediaAction = document.createElement('button');
-            viewSharedMediaAction.classList.add('secondary');
-            viewSharedMediaAction.textContent = 'View Shared Media (WIP)';
-            viewSharedMediaAction.addEventListener('click', () => showAppMessage('Shared media view is a Work In Progress.', false));
-            profileActions.appendChild(viewSharedMediaAction);
+            } else {
+                const startChatAction = document.createElement('button');
+                startChatAction.classList.add('primary');
+                startChatAction.textContent = 'Message';
+                startChatAction.addEventListener('click', async () => {
+                    if (profileViewModal) profileViewModal.classList.add('hidden');
+                    // This logic redirects to chat.html with context
+                    const existingChat = (await db.collection('chats')
+                                                .where('participants', 'array-contains', currentUser.uid)
+                                                .get())
+                                                .docs.find(doc => doc.data().participants.includes(userId));
+                    if (existingChat) {
+                        window.location.href = `chat.html?chatId=${existingChat.id}&otherUserId=${userId}`;
+                    } else {
+                        const newChatRef = await db.collection('chats').add({
+                            participants: [currentUser.uid, userId],
+                            lastMessage: null,
+                            lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        window.location.href = `chat.html?chatId=${newChatRef.id}&otherUserId=${userId}`;
+                    }
+                });
+                profileActions.appendChild(startChatAction);
 
+                const viewSharedMediaAction = document.createElement('button');
+                viewSharedMediaAction.classList.add('secondary');
+                viewSharedMediaAction.textContent = 'View Shared Media (WIP)';
+                viewSharedMediaAction.addEventListener('click', () => alert('Shared media view is a Work In Progress.'));
+                profileActions.appendChild(viewSharedMediaAction);
+            }
 
         } else {
             profileName.textContent = 'User Not Found';
             profileEmail.textContent = 'N/A';
             profileAvatar.textContent = '?';
             profileStatus.textContent = 'Unknown';
-            profileStatusMessage.textContent = 'User profile data could not be loaded.';
             profileJoined.textContent = 'N/A';
             const statusIndicatorInProfileAvatar = profileAvatar.querySelector('.status-indicator');
             if (statusIndicatorInProfileAvatar) statusIndicatorInProfileAvatar.remove(); // Remove indicator if user not found
@@ -2223,7 +1672,6 @@ async function openProfileViewModal(userId) {
         profileEmail.textContent = '';
         profileAvatar.textContent = '!';
         profileStatus.textContent = 'Error';
-        profileStatusMessage.textContent = 'Failed to load user profile.';
         profileJoined.textContent = '';
         const statusIndicatorInProfileAvatar = profileAvatar.querySelector('.status-indicator');
         if (statusIndicatorInProfileAvatar) statusIndicatorInProfileAvatar.remove(); // Remove indicator on error
@@ -2238,10 +1686,9 @@ async function openProfileViewModal(userId) {
 // Adjust isMobileView on resize
 window.addEventListener('resize', () => {
     isMobileView = window.innerWidth <= 768;
-    // Hide all menus when resizing
+    // Hide context menu and chat options menu when resizing
     hideContextMenu();
     if (chatOptionsMenu) chatOptionsMenu.classList.remove('show');
-    if (moreOptionsMenu) moreOptionsMenu.classList.remove('show');
 });
 
 // Mobile back button for chat.html
@@ -2252,7 +1699,7 @@ if (backToSidebarBtn) { // This element only exists on chat.html
             // Before navigating, clean up chat-specific listeners and state
             if (unsubscribeFromMessages) unsubscribeFromMessages();
             if (unsubscribeFromChatTyping) unsubscribeFromChatTyping();
-
+            
             // Clear any typing status for the current user in RTDB before leaving
             if (currentUser && currentUser.uid && currentChatId) {
                 rtdb.ref(`typing/${currentChatId}/${currentUser.uid}`).remove().catch(e => console.error("Error clearing typing status on back:", e));
